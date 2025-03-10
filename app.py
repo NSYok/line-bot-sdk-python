@@ -21,7 +21,37 @@ DB_PASS = os.getenv("DB_PASS")
 DB_NAME = os.getenv("DB_NAME")
 
 # กำหนด Logging
-logging.basicConfig(level=logging.DEBUG)
+
+import logging
+
+# Create a logger
+logger = logging.getLogger("MyLogger")
+logger.setLevel(logging.DEBUG)  # Capture all log levels
+
+# Create handlers for each log level
+debug_handler = logging.FileHandler("app.debug")  # Logs DEBUG messages
+info_handler = logging.FileHandler("app.info")  # Logs INFO and above
+error_handler = logging.FileHandler("app.error")  # Logs only ERROR and CRITICAL
+
+# Set levels for each handler
+debug_handler.setLevel(logging.DEBUG)  # Logs DEBUG and above
+info_handler.setLevel(logging.INFO)  # Logs INFO and above
+error_handler.setLevel(logging.ERROR)  # Logs only ERROR and CRITICAL
+
+# Log format
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+debug_handler.setFormatter(formatter)
+info_handler.setFormatter(formatter)
+error_handler.setFormatter(formatter)
+
+# Add handlers to the logger
+logger.addHandler(debug_handler)
+logger.addHandler(info_handler)
+logger.addHandler(error_handler)
+
+
+
+
 
 # สร้าง Flask app
 app = Flask(__name__)
@@ -30,9 +60,10 @@ configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 
 def connect_db():
     try:
+        
         return mysql.connector.connect(host=DB_HOST, user=DB_USER, password=DB_PASS, database=DB_NAME)
     except mysql.connector.Error as err:
-        logging.error(f"Error connecting to database: {err}")
+        logger.error(f"Error connecting to database: {err}")
         return None
 
 @app.route("/webhook", methods=["POST"])
@@ -53,18 +84,22 @@ def handle_message(event):
         try:
             check_alarms()
         except Exception as e:
-            logging.error(f"Error in check alarm: {e}")
-    elif user_message == "group id":
+            logger.error(f"Error in check_alarms: {e}")
+            print(f"Error in check_alarms: {e}")
+    elif user_message == "!group id":
         try :
             if event.source.type == 'group':
                 send_line_message(event.source.group_id, f"Group ID: {event.source.group_id} ")
                 
 
         except Exception as e:
-            logging.error(f"Error in sending group id: {e}")
+            logger.error(f"Error in sending group id: {e}")
+            print(f"Error in sending group id: {e}")
 
 def check_alarms():
-    now = time.time() - (60 * 5)
+    logger.info(f"Running check_alarms . . .")
+    print(f"Time {time.ctime()}")
+    now = time.time() - (60 * 15)
     # print(time.ctime(now))
     conn = connect_db()
     if conn is None:
@@ -99,11 +134,13 @@ def check_alarms():
         #     print(key, value)
 
         if not users:
-            logging.info("No users found.")
+            logger.info("No users found.")
+            print("No users found.")
             return
         
         for user in users:
-            message = f"📢 Alarm {user[3]} ({user[4]})\n({user[2]} {user[0]})\n"
+            h_message = f"📢 Alarm {user[3]}-({user[4]} {user[0]})\n"
+            message = ""
             p_id = user[0]
             cursor.execute(f"""SELECT DISTINCT lu.measurement_id, lu.value, lu.alarm_type
                             FROM zpd{p_id}_lastupdate AS lu
@@ -111,34 +148,40 @@ def check_alarms():
                             WHERE lu.alarm_type != '' AND lu.device_timestamp > {now} AND pm.line_alarm = 1""")
             alarms = cursor.fetchall()
             
-            if not alarms:
-                continue
-            
-            for al in alarms:
-                alarm_type = al[2]
-                measurement_data = measurement_dict.get((p_id, al[0]))  # ใช้ .get() ป้องกัน KeyError
-                if not measurement_data:
-                    continue  # ถ้าไม่มี key ตรงกัน ให้ข้าม iteration นี้ไป
-                if alarm_type == 'h1':
-                    message += f"⚠️High level 1: {measurement_dict[(p_id,al[0])]['name']} ({al[1]}) > {measurement_dict[(p_id,al[0])]['h1']} \n"
-                elif alarm_type == 'h2':
-                    message += f"🚨High level 2: {measurement_dict[(p_id,al[0])]['name']} ({al[1]}) > {measurement_dict[(p_id,al[0])]['h2']} \n"
-                elif alarm_type == 'l1':
-                    message += f"⚠️Low level 1: {measurement_dict[(p_id,al[0])]['name']} ({al[1]}) < {measurement_dict[(p_id,al[0])]['l1']} \n"
-                elif alarm_type == 'l2':
-                    message += f"🚨Low level 2: {measurement_dict[(p_id,al[0])]['name']} ({al[1]}) < {measurement_dict[(p_id,al[0])]['l2']} \n"
-
-            if message:
-                logging.info(f"Sending message to {user[2]} \n {message}")
-                # send_line_message("Ca2c997a16b3d4b14b4b7a848576a622e", message)
-                send_line_message(user[2], message) # ส่งข้อความไปยัง LINE ID ของผู้ใช้
+            if alarms:
+                for al in alarms:
+                    alarm_type = al[2]
+                    measurement_data = measurement_dict.get((p_id, al[0]))  # ใช้ .get() ป้องกัน KeyError
+                    if not measurement_data:
+                        continue  # ถ้าไม่มี key ตรงกัน ให้ข้าม iteration นี้ไป
+                    if alarm_type == 'h1':
+                        message += f"⚠️High level 1: {measurement_dict[(p_id,al[0])]['name']} ({al[1]}) > {measurement_dict[(p_id,al[0])]['h1']} \n"
+                    elif alarm_type == 'h2':
+                        message += f"🚨High level 2: {measurement_dict[(p_id,al[0])]['name']} ({al[1]}) > {measurement_dict[(p_id,al[0])]['h2']} \n"
+                    elif alarm_type == 'l1':
+                        message += f"⚠️Low level 1: {measurement_dict[(p_id,al[0])]['name']} ({al[1]}) < {measurement_dict[(p_id,al[0])]['l1']} \n"
+                    elif alarm_type == 'l2':
+                        message += f"🚨Low level 2: {measurement_dict[(p_id,al[0])]['name']} ({al[1]}) < {measurement_dict[(p_id,al[0])]['l2']} \n"
+                if message:
+                    message = h_message + message
+                    send_line_message(user[2], message) # ส่งข้อความไปยัง LINE ID ของผู้ใช้
+            else:
+                # logger.info(f" No alarms found for  {user[4]}({user[0]})")
+                # print(f" No alarms found for  {user[4]}({user[0]})")
+                return
+                             
     except mysql.connector.Error as err:
-        logging.error(f"Error executing query: {err}")
+        logger.error(f"Error executing query in check_alarms: {err}")
+        print(f"Error executing query in check_alarms: {err}")
     finally:
+        logger.info(f"check_alarms successfully")
+        print(f"check_alarms successfully")
         conn.close()
 
 def send_line_message(group_id, message):
     try:
+        logger.info(f"Sending message {group_id},text={message}")
+        print(f"Sending message {group_id},text ={message}")
         if not message:
             raise ValueError("Message cannot be empty")
         if not group_id:
@@ -151,11 +194,14 @@ def send_line_message(group_id, message):
                     messages=[TextMessage(text=message)]
                 )
             )
+        logger.info(f"send_line_message successfully")
+        print(f"send_line_message successfully")
     except Exception as e:
-        logging.error(f"Error sending message to LINE: {e}")
+        logger.error(f"Error send_line_message: {e}")
+        print(f"Error send_line_message: {e}")
 
 scheduler = BackgroundScheduler()
-scheduler.add_job(func=check_alarms, trigger="interval", minutes=5)
+scheduler.add_job(func=check_alarms, trigger="interval", minutes=15)
 scheduler.start()
 
 if __name__ == "__main__":
