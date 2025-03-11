@@ -11,7 +11,7 @@ from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, TextMessage , PushMessageRequest
 
-# โหลดตัวแปรจาก .env
+
 load_dotenv()
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
 LINE_CHANNEL_SECRET = os.getenv('LINE_CHANNEL_SECRET')
@@ -20,7 +20,7 @@ DB_USER = os.getenv("DB_USER")
 DB_PASS = os.getenv("DB_PASS")
 DB_NAME = os.getenv("DB_NAME")
 
-# กำหนด Logging
+
 
 import logging
 
@@ -28,10 +28,12 @@ import logging
 logger = logging.getLogger("MyLogger")
 logger.setLevel(logging.DEBUG)  # Capture all log levels
 
-# Create handlers for each log level
-debug_handler = logging.FileHandler("app.debug")  # Logs DEBUG messages
-info_handler = logging.FileHandler("app.info")  # Logs INFO and above
-error_handler = logging.FileHandler("app.error")  # Logs only ERROR and CRITICAL
+
+# Create handlers for each log level (with UTF-8 encoding)
+debug_handler = logging.FileHandler("app.debug", encoding="utf-8")  # Logs DEBUG messages
+info_handler = logging.FileHandler("app.info", encoding="utf-8")  # Logs INFO and above
+error_handler = logging.FileHandler("app.error", encoding="utf-8")  # Logs only ERROR and CRITICAL
+
 
 # Set levels for each handler
 debug_handler.setLevel(logging.DEBUG)  # Logs DEBUG and above
@@ -100,7 +102,7 @@ def check_alarms():
     logger.info(f"Running check_alarms . . .")
     print(f"Time {time.ctime()}")
     now = time.time() - (60 * 15)
-    # print(time.ctime(now))
+    # print(now)
     conn = connect_db()
     if conn is None:
         return
@@ -119,7 +121,7 @@ def check_alarms():
                         WHERE cp.linecode !='' AND p.deleted = '0' AND line_alarm = 1
                         ORDER BY pm.measurement_id ASC""")
         measurement_list = cursor.fetchall() 
-        # สร้าง dict สำหรับเก็บข้อมูล โดยใช้ (product_id, measurement_id) เป็น key และ pm.name ,pm.h1, pm.h2 , pm.l1, pm.l2 เป็น value 
+        
         measurement_dict = {   # pm.product_id , pm.measurement_id :: pm.name ,pm.h1, pm.h2 , pm.l1, pm.l2
         (measurement[1] , measurement[2] ) : {    
             'name': measurement[0],
@@ -139,7 +141,8 @@ def check_alarms():
             return
         
         for user in users:
-            h_message = f"📢 Alarm {user[3]}-({user[4]} {user[0]})\n"
+            # print(user)
+            h_message = f"📢IDT_Alarm {user[3]}-({user[4]} {user[0]})\n"
             message = ""
             p_id = user[0]
             cursor.execute(f"""SELECT DISTINCT lu.measurement_id, lu.value, lu.alarm_type
@@ -147,28 +150,31 @@ def check_alarms():
                             JOIN product_measurement AS pm ON lu.measurement_id = pm.measurement_id
                             WHERE lu.alarm_type != '' AND lu.device_timestamp > {now} AND pm.line_alarm = 1""")
             alarms = cursor.fetchall()
-            
+            # print(alarms)
             if alarms:
                 for al in alarms:
                     alarm_type = al[2]
                     measurement_data = measurement_dict.get((p_id, al[0]))  # ใช้ .get() ป้องกัน KeyError
+                    # print (f"measurement_data : {measurement_data}")
+                    
                     if not measurement_data:
-                        continue  # ถ้าไม่มี key ตรงกัน ให้ข้าม iteration นี้ไป
+                        continue  #skip if no data
                     if alarm_type == 'h1':
-                        message += f"⚠️High level 1: {measurement_dict[(p_id,al[0])]['name']} ({al[1]}) > {measurement_dict[(p_id,al[0])]['h1']} \n"
+                        message += f"⚠️High level 1\n {measurement_dict[(p_id,al[0])]['name']} ({al[1]}) > {measurement_dict[(p_id,al[0])]['h1']} \n"
                     elif alarm_type == 'h2':
-                        message += f"🚨High level 2: {measurement_dict[(p_id,al[0])]['name']} ({al[1]}) > {measurement_dict[(p_id,al[0])]['h2']} \n"
+                        message += f"🚨High level 2\n {measurement_dict[(p_id,al[0])]['name']} ({al[1]}) > {measurement_dict[(p_id,al[0])]['h2']} \n"
                     elif alarm_type == 'l1':
-                        message += f"⚠️Low level 1: {measurement_dict[(p_id,al[0])]['name']} ({al[1]}) < {measurement_dict[(p_id,al[0])]['l1']} \n"
+                        message += f"⚠️Low level 1\n {measurement_dict[(p_id,al[0])]['name']} ({al[1]}) < {measurement_dict[(p_id,al[0])]['l1']} \n"
                     elif alarm_type == 'l2':
-                        message += f"🚨Low level 2: {measurement_dict[(p_id,al[0])]['name']} ({al[1]}) < {measurement_dict[(p_id,al[0])]['l2']} \n"
+                        message += f"🚨Low level 2\n {measurement_dict[(p_id,al[0])]['name']} ({al[1]}) < {measurement_dict[(p_id,al[0])]['l2']} \n"
                 if message:
                     message = h_message + message
-                    send_line_message(user[2], message) # ส่งข้อความไปยัง LINE ID ของผู้ใช้
-            else:
+                    send_line_message(user[2], message) # sent result to line
+                    
+            # else:
                 # logger.info(f" No alarms found for  {user[4]}({user[0]})")
                 # print(f" No alarms found for  {user[4]}({user[0]})")
-                return
+                
                              
     except mysql.connector.Error as err:
         logger.error(f"Error executing query in check_alarms: {err}")
@@ -179,9 +185,9 @@ def check_alarms():
         conn.close()
 
 def send_line_message(group_id, message):
+    logger.info(f"Sending message {group_id},text={message}")
+    print(f"Sending message {group_id},text ={message}")
     try:
-        logger.info(f"Sending message {group_id},text={message}")
-        print(f"Sending message {group_id},text ={message}")
         if not message:
             raise ValueError("Message cannot be empty")
         if not group_id:
